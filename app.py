@@ -1,76 +1,62 @@
 # app_two_sides.py
 import streamlit as st
-import openai
-import os
+import json
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-# --- Set your OpenAI API key ---
-openai.api_key = os.getenv("OPENAI_API_KEY")  # Make sure to set this in your environment
+RIGHT_SIDE_RULE = "On the right bears must have a peace sign with their hand, flowers in their hand, white bellies"
 
-# --- Ground truth rule for the right side ---
-RIGHT_SIDE_RULE = "Bears holding flowers, showing a peace sign, with white bellies and black noses"
+@st.cache_resource
+def load_model():
+    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
+    model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
+    return tokenizer, model
 
 st.title("Bear Grouping Activity")
+
 st.write("""
 You will see an image split into **two sides**. Each side has 5 bears.
-Your task is to **come up with 5 rules describing how the bears are grouped**. 
-Type your 5 rules below (one per line). Note: the right side has a strict rule; the left side is everything else.
+Your task is to **come up with 5 rules describing how the bears are grouped**.
+Type your 5 rules below (one per line).
+Note: the right side has a strict rule; the left side is everything else.
 """)
 
 # --- Display image ---
-st.image("A_digital_illustration_features_ten_cartoon-style_.png", caption="Two sides of bears", use_column_width=True)
+st.image("A_digital_illustration_features_ten_cartoon-style_.png", caption="Two sides of bears", width='stretch')
 
 # --- User input ---
-user_input = st.text_area("Enter your 5 rules (one per line)", height=200)
+user_input = st.text_area("Enter your rules", height=200)
 
 # --- Button to submit ---
 if st.button("Submit"):
     if not user_input.strip():
-        st.warning("Please enter your 5 rules.")
+        st.warning("Please enter your rules.")
     else:
-        user_rules = [line.strip() for line in user_input.strip().split("\n") if line.strip()]
+        # --- Prepare the prompt for the model ---
+        prompt = f"""Determine if the user's rules match this ground truth: '{RIGHT_SIDE_RULE}'.
 
-        if len(user_rules) != 5:
-            st.warning("Please enter exactly 5 rules.")
-        else:
-            # --- Prepare the prompt for GPT ---
-            prompt = f"""
-You are an evaluator. The right side of the image has a strict rule:
+User's rules: {user_input.strip()}
 
-{RIGHT_SIDE_RULE}
+If the user mentions peace signs, flowers, and white bellies for the right side, respond with: {{"matches_right_side": true, "score": 5}}
+Otherwise respond with: {{"matches_right_side": false, "score": 0}}
 
-Left side bears can have some but not all of those features. The user submitted these 5 rules:
+Output only valid JSON:"""
 
-{user_rules}
-
-Evaluate each rule: 
-- Does it correctly describe the right side? 
-- Is it applicable to the left side? 
-- Give an overall score from 0 to 5, where 5 means all rules correctly describe the sides.
-
-Respond in JSON format:
-
-{{
-  "evaluations": [
-    {{"user_rule": "...", "matches_right_side": "...", "matches_left_side": "...", "score": ...}},
-    ...
-  ],
-  "overall_score": ...
-}}
-"""
-
-            # --- Call OpenAI API ---
-            try:
-                response = openai.ChatCompletion.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": "You are an evaluator of grouping rules."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0
-                )
-
-                eval_output = response.choices[0].message['content']
-                st.subheader("Evaluation Result")
-                st.code(eval_output)
-            except Exception as e:
-                st.error(f"Error: {e}")
+        # --- Use model for evaluation ---
+        tokenizer, model = load_model()
+        
+        inputs = tokenizer(prompt, return_tensors="pt", max_length=512, truncation=True)
+        outputs = model.generate(**inputs, max_length=100)
+        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        try:
+            eval_json = json.loads(response)
+        except:
+            # Fallback: simple keyword matching
+            user_lower = user_input.lower()
+            matches = ("peace" in user_lower or "✌" in user_lower) and \
+                     ("flower" in user_lower) and \
+                     ("white" in user_lower and "bell" in user_lower)
+            eval_json = {"matches_right_side": matches, "score": 5 if matches else 0}
+        
+        st.subheader("Evaluation Result")
+        st.json(eval_json)
