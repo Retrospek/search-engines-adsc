@@ -15,8 +15,7 @@ st.title("Bear Grouping Activity")
 
 st.write("""
 You will see an image split into **two sides**. Each side has 5 bears.
-Your task is to **come up with 5 rules describing how the bears are grouped**.
-Type your 5 rules below (one per line).
+Your task is to **come up with 3 rules describing how the bears are grouped**.
 Note: the right side has a strict rule; the left side is everything else.
 """)
 
